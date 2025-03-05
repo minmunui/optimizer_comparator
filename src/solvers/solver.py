@@ -8,3 +8,4 @@ class Solver():
 
     def get_output(self):
         ...
+

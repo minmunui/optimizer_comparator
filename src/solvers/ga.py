@@ -1,4 +1,5 @@
 import random
+from enum import Enum
 from typing import Callable
 
 import matplotlib
@@ -10,21 +11,40 @@ from src.solvers.solver import Solver
 from src.utils import logger
 
 
-class GeneticSolver(Solver):
+class CrossoverMethod(Enum):
+    Sequential = 1,
+    Iterative = 2,
+    Random = 3
+
+    def __str__(self):
+        return self.name
+
+
+class ParentSelectionMethod(Enum):
+    RouletteWheel = 1,
+    Tournament = 2
+
+    def __str__(self):
+        return self.name
+
+
+class MyGaSolver(Solver):
     def __init__(self,
-                 input_type: list[int],
+                 solution_type: list[int],
                  fitness_function: Callable[[list[int]], float],
                  population_size: int = 100,
-                 num_parents: int = 2,
+                 num_parents: int = None,
                  crossover_rate: float = 0.8,
                  mutation_rate: float = -1,
                  num_elitism: int = 2,
-                 immigration_size: int = 0
+                 immigration_size: int = None,
+                 parent_select_method: ParentSelectionMethod = ParentSelectionMethod.Tournament,
+                 crossover_method: CrossoverMethod = CrossoverMethod.Sequential,
                  ):
         """
 
 
-        :param input_type: array of input ranges
+        :param solution_type: array of input ranges
         :param fitness_function: fitness function to evaluate the solution. as higher the value, the better the solution
         :param population_size: population size of the genetic algorithm (normally 50~200)
         :param num_parents: number of parents to be selected for crossover (normally 2)
@@ -35,17 +55,20 @@ class GeneticSolver(Solver):
         """
 
         self.history = []
-        self.immigration_size = immigration_size
-        self.solution_length = len(input_type)
-        self.input_type = input_type
+        self.immigration_size = immigration_size if immigration_size >= 0 else population_size // 10
+        self.solution_length = len(solution_type)
+        self.solution_type = solution_type
         self.fitness_function = fitness_function
         self.population_size = population_size
-        self.num_parents = num_parents
+        self.num_parents = num_parents if num_parents is not None else population_size // 4
         self.crossover_rate = crossover_rate
         self.mutation_rate = mutation_rate if mutation_rate >= 0 else 1 / self.solution_length
         self.num_elitism = num_elitism
 
         self.population = self.generate_population()
+
+        self.parent_select_method = parent_select_method
+        self.crossover_method = crossover_method
 
     def init(self):
         """
@@ -77,7 +100,7 @@ class GeneticSolver(Solver):
         :return:
         """
         num_population = self.population_size if num_population == 0 else num_population
-        return [[random.randint(0, self.input_type[i]) for i in self.input_type]
+        return [[random.randint(0, self.solution_type[i]) for i in self.solution_type]
                 for _ in range(num_population)]
 
     def calculate_fitness(self, solution: list[int]) -> float:
@@ -104,6 +127,8 @@ class GeneticSolver(Solver):
         """
         fitness = self.calculate_all_fitness() if fitness is None else fitness
         total_fitness = sum(fitness)
+        if total_fitness == 0:
+            return random.choices(self.population, k=k)
         probabilities = [f / total_fitness for f in fitness]
 
         parents = random.choices(self.population, probabilities, k=k)
@@ -141,7 +166,7 @@ class GeneticSolver(Solver):
 
     def select_parents(self,
                        n_selection: int,
-                       method: str,
+                       method: ParentSelectionMethod,
                        fitness: list[float] | None = None,
                        **kwargs) -> list[list[int]]:
         """
@@ -152,18 +177,18 @@ class GeneticSolver(Solver):
         :param kwargs: additional arguments for the selection method
         :return:
         """
-        if method == 'roulette_wheel':
+        if method == ParentSelectionMethod.RouletteWheel:
             return self.select_parents_roulette_wheel(n_selection, fitness)
-        elif method == 'tournament':
+        elif method == ParentSelectionMethod.Tournament:
             return self.select_parents_tournament(n_selection, fitness, **kwargs)
         else:
             raise ValueError(f"Unknown selection method: {method}")
 
     def crossover(self, parent1: list[int], parent2: list[int]) -> tuple[list[int], list[int]]:
         """
-        Crossover two parents to create 2 children
-        :param parent1:
-        :param parent2:
+        Crossover two parents to create 2 children, order is not important
+        :param parent1: first parent
+        :param parent2: second parent
         :return:
         """
         if random.random() < self.crossover_rate:
@@ -173,23 +198,45 @@ class GeneticSolver(Solver):
             return child1, child2
         return parent1, parent2
 
-    def crossover_population(self, parents: list[list[int]]) -> list[list[int]]:
+    def crossover_population(self,
+                             parents: list[list[int]],
+                             crossover_method: CrossoverMethod,
+                             num_children: int = None) -> list[list[int]]:
+
         """
         Crossover the parents to create children
         :param parents: list of parents to generate children
+        :param crossover_method: method of crossover
+        :param num_children: number of children to be generated
         :return:
         """
         children = []
         random.shuffle(parents)
-        if len(parents) % 2 != 0:
-            children.append(parents.pop())
+        if crossover_method == CrossoverMethod.Sequential or crossover_method == CrossoverMethod.Iterative:
+            index = 0
+            temp = []
+            while num_children > len(children):
+                temp.append(parents[index])
+                index = index + 1 % len(parents)
+                if len(temp) >= 2:
+                    child1, child2 = self.crossover(temp[0], temp[1])
+                    children.append(child1)
+                    children.append(child2)
+                    if crossover_method == CrossoverMethod.Sequential:
+                        temp = []
+                    elif crossover_method == CrossoverMethod.Iterative:
+                        temp = [temp[1]]
+                if index >= len(parents):
+                    index = 0
+                    random.shuffle(parents)
 
-        for i in range(0, len(parents), 2):
-            if i + 1 < len(parents):
-                child1, child2 = self.crossover(parents[i], parents[i + 1])
+        elif crossover_method == CrossoverMethod.Random:
+            while num_children > len(children):
+                child1, child2 = self.crossover(random.choice(parents), random.choice(parents))
                 children.append(child1)
                 children.append(child2)
-        return children
+
+        return children[:num_children]
 
     def mutate(self, solution: list[int]) -> list[int]:
         """
@@ -199,7 +246,7 @@ class GeneticSolver(Solver):
         """
         if random.random() < self.mutation_rate:
             mutation_point = random.randint(0, self.solution_length - 1)
-            solution[mutation_point] = random.randint(0, self.input_type[mutation_point])
+            solution[mutation_point] = random.randint(0, self.solution_type[mutation_point])
         return solution
 
     def mutate_population(self, population: list[list[int]]) -> list[list[int]]:
@@ -244,27 +291,26 @@ class GeneticSolver(Solver):
                              'best_fitness': fitness[best_solution_index],
                              'avg_fitness': avg_fitness})
 
-    def plot_history(self):
+    def plot_history(self, save_path=None):
         """
-        Plot the history of the genetic algorithm
+        Plot the history of the genetic algorithm and save the plot if save_path is provided
+        :param save_path: path to save the plot
         :return:
         """
         plt.figure(figsize=(12, 6))
         plt.plot([step['step'] for step in self.history], [step['best_fitness'] for step in self.history], label='Best')
-        plt.plot([step['step'] for step in self.history], [step['avg_fitness'] for step in self.history],
-                 label='Average')
-        # plot every fitness values of the population
+        plt.plot([step['step'] for step in self.history], [step['avg_fitness'] for step in self.history], label='Average')
         for i in range(len(self.history[0]['fitness'])):
-            plt.scatter([step['step'] for step in self.history],
-                        [step['fitness'][i] for step in self.history],
-                         s=5)
-
+            plt.scatter([step['step'] for step in self.history], [step['fitness'][i] for step in self.history], s=5)
         plt.title('Fitness over Generations')
         plt.xlabel('Generation')
         plt.ylabel('Fitness')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        if save_path:
+            plt.savefig(save_path)
+        else:
+            plt.show()
 
     def solve(self, max_generations: int = 100) -> list[int]:
         """
@@ -283,10 +329,11 @@ class GeneticSolver(Solver):
             # get the best solutions from the current generation
             elite = self.select_elites(self.num_elitism, fitness=fitness)
             # make a new generation
-            num_parents = self.population_size - len(elite) - self.immigration_size
-            parents = self.select_parents(num_parents, 'tournament', tournament_size=5, fitness=fitness)
+            parents = self.select_parents(self.num_parents, self.parent_select_method, tournament_size=5,
+                                          fitness=fitness)
 
-            children = self.crossover_population(parents)
+            num_children = self.population_size - len(elite)
+            children = self.crossover_population(parents, self.crossover_method, num_children)
             children = self.mutate_population(children)
 
             # replace the population with the new generation
@@ -295,7 +342,7 @@ class GeneticSolver(Solver):
             # immigrate new solutions
             new_solutions = self.generate_population(self.population_size - len(self.population))
             self.population += new_solutions
-            logger.info(f"Generation {step + 1} completed with best fitness: {max(fitness)}")
+            # logger.info(f"Generation {step + 1} completed with best fitness: {max(fitness)}")
 
         fitness = self.calculate_all_fitness()
         best_solution_index = max(range(len(fitness)), key=lambda i: fitness[i])

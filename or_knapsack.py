@@ -1,7 +1,11 @@
+import time
+
 from ortools.linear_solver import pywraplp
 
+from src.problems.knapsack import generate_knapsack_problem
 
-def solve_knapsack(values, weights, capacity):
+
+def solve_knapsack_or(values: list[int], weights: list[int], capacity: int):
     # 솔버 생성
     solver = pywraplp.Solver.CreateSolver('SCIP')
 
@@ -27,24 +31,43 @@ def solve_knapsack(values, weights, capacity):
         packed_items = []
         packed_weights = 0
         total_value = 0
+        solution = [x[i].solution_value() for i in range(len(values))]
         for i in range(len(values)):
-            if x[i].solution_value() > 0.5:  # 반올림 오차 방지
-                packed_items.append(i)
-                packed_weights += weights[i]
-                total_value += values[i]
-        return total_value, packed_items, packed_weights
+            packed_weights += weights[i]
+            total_value += values[i] * solution[i]
+        return total_value, solution, packed_weights
     return None, None, None
 
 
-# 예제 사용
-values = [60, 100, 120]  # 각 아이템의 가치
-weights = [10, 20, 30]  # 각 아이템의 무게
-capacity = 50  # 배낭의 최대 용량
+def solve_fractional_knapsack_or(weights: list[int], values: list[int], capacity: int, fraction: int):
+    solver = pywraplp.Solver.CreateSolver('SCIP')
+    if not solver:
+        print("SCIP 솔버를 생성할 수 없습니다.")
+        return
 
-total_value, selected_items, total_weight = solve_knapsack(values, weights, capacity)
-if total_value is not None:
-    print(f'총 가치: {total_value}')
-    print(f'선택된 아이템: {selected_items}')
-    print(f'총 무게: {total_weight}')
-else:
-    print('해결책을 찾을 수 없습니다.')
+    n = len(weights)
+    # 각 물건에 대해 0, 1, 2, 3 중 하나의 값을 갖는 정수 변수 x[i] 생성
+    # 여기서 x[i] / 3 이 실제 담는 비율을 나타냅니다.
+    x = [solver.IntVar(0, fraction, f'x{i}') for i in range(n)]
+
+    # constraint: sum( weights[i] * x[i] ) <= capacity * fraction
+    solver.Add(sum(weights[i] * x[i] for i in range(n)) <= capacity * fraction)
+
+    # objective: maximize sum( values[i] * x[i] )
+    objective = solver.Objective()
+    for i in range(n):
+        objective.SetCoefficient(x[i], values[i])
+    objective.SetMaximization()
+
+    # 문제 풀기
+    status = solver.Solve()
+
+    if status == pywraplp.Solver.OPTIMAL:
+        # 실제 총 수익과 무게는 각 변수 값에 1/3을 곱한 결과임
+        total_value = sum(values[i] * x[i].solution_value() for i in range(n)) / fraction
+        total_weight = sum(weights[i] * x[i].solution_value() for i in range(n)) / fraction
+        for i in range(n):
+            x[i] = x[i].solution_value()
+        return total_value, x, total_weight
+    else:
+        print('최적 해를 찾지 못했습니다.')
