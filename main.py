@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from or_knapsack import solve_knapsack_or, solve_fractional_knapsack_or
+from src.solvers.or_knapsack import solve_knapsack_or, solve_fractional_knapsack_or
 from src.problems.knapsack import generate_knapsack_problem, evalKnapsack, eval_fractional_knapsack
 from src.solvers.ga import MyGaSolver, ParentSelectionMethod
 from src.utils import logger
@@ -19,8 +19,7 @@ def log_solution(values, weights, choices, fraction=1):
     logger.info(f"{'Got values':<10}: {str_gotten_values}")
 
 
-if __name__ == "__main__":
-
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_items", type=int, default=50, help="Number of items")
     parser.add_argument("--weight_range", type=int, nargs=2, default=[1, 50], help="Range of item weights (min, max)")
@@ -135,3 +134,7 @@ if __name__ == "__main__":
 
     else:
         raise ValueError(f"Fraction should be greater than 0: {args.fraction}")
+
+
+if __name__ == "__main__":
+    main()
