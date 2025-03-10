@@ -312,7 +312,7 @@ class MyGaSolver(Solver):
         else:
             plt.show()
 
-    def solve(self, max_generations: int = 100) -> list[int]:
+    def solve(self, max_generations: int = 100) -> list[float]:
         """
         Solve the problem using the genetic algorithm
         :param max_generations: maximum number of generations
