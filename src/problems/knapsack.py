@@ -22,7 +22,6 @@ def generate_knapsack_problem(num_items: int = 80,
         Tuple of (weights, values, capacity)
     """
     # Set random seed for reproducible results
-    random.seed(42)
 
     # Generate random weights and values for items
     weights = [random.randint(weight_range[0], weight_range[1]) for _ in range(num_items)]
