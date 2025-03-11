@@ -3,12 +3,17 @@ import math
 from typing import Callable, List
 
 import matplotlib
+from scipy.optimize import dual_annealing
+
+from src.solvers.solver import Solver
+
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
+
 # If needed, you can inherit from a base Solver class, e.g., from src.solvers.solver import Solver
 
-class SimulatedAnnealingSolver:  # Optionally, inherit from Solver if required.
+class SimulatedAnnealingSolver(Solver):  # Optionally, inherit from Solver if required.
     def __init__(self,
                  solution_type: List[int],
                  fitness_function: Callable[[List[int]], float],
@@ -109,22 +114,28 @@ class SimulatedAnnealingSolver:  # Optionally, inherit from Solver if required.
         else:
             plt.show()
 
-# Example usage for the Knapsack problem:
-if __name__ == '__main__':
 
-    # Create an instance of the SA solver and execute the algorithm.
-    sa_solver = SimulatedAnnealingSolver(solution_type, knapsack_fitness,
-                                         initial_temp=1000,
-                                         cooling_rate=0.995,
-                                         min_temp=1e-3,
-                                         max_iter=10000)
-    best_solution = sa_solver.solve()
-    best_value = knapsack_fitness(best_solution)
-    total_weight = sum(w for w, s in zip(weights, best_solution) if s)
+class DualAnnealingSolver(Solver):
 
-    print("Best solution (item selection vector):", best_solution)
-    print("Total value:", best_value)
-    print("Total weight:", total_weight)
+    def __init__(self,
+                 solution_type: list[int],
+                 fitness_function: Callable[[list[int]], float],
+                 initial_temp: float = 10460,
+                 maxiter: int = 10000,
+                 max_fun: int = None,
+                 ):
+        self.max_fun = max_fun if max_fun is not None else maxiter * 10
+        self.solution_type = solution_type
+        self.fitness_function = fitness_function
+        self.solution_length = len(solution_type)
+        self.maxiter = maxiter
+        self.history = []
+        self.initial_temp = initial_temp
 
-    # Plot the progress of the algorithm.
-    sa_solver.plot_history()
+    def random_solution(self) -> list[int]:
+        return [random.randint(0, self.solution_type[i]) for i in range(self.solution_length)]
+
+    def solve(self) -> list[int]:
+        bounds = [(0, action) for action in self.solution_type]
+        result = dual_annealing(self.fitness_function, bounds=bounds, maxiter=self.maxiter, initial_temp=self.initial_temp)
+        return result.x
