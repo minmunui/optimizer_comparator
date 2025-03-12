@@ -109,7 +109,7 @@ class MyGaSolver(Solver):
         :param solution:
         :return:
         """
-        return self.fitness_function(solution)[0]
+        return self.fitness_function(solution)
 
     def calculate_all_fitness(self) -> list[float]:
         """

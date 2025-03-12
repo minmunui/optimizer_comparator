@@ -57,15 +57,17 @@ def solve_or_tools(values, weights, capacity, fraction):
         values, weights, capacity, fraction
     )
     log_solution(values, weights, solution, fraction)
+    return solution
 
 
 def solve_dynamic_programming(values, weights, capacity, fraction):
     logger.info("Dynamic Programming Solution")
-    total_value, actual_weight, choices = solve_with_timer(
+    total_value, actual_weight, solution = solve_with_timer(
         solve_dp_fraction,
         weights, values, capacity, fraction
     )
-    log_solution(values, weights, choices, fraction)
+    log_solution(values, weights, solution, fraction)
+    return solution
 
 
 def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
@@ -76,7 +78,6 @@ def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
                             crossover_rate: float = 0.8,
                             mutation_rate: float = 0.1,
                             ):
-    logger.info("Genetic Algorithm Solution")
     if use_rag:
         fitness_function = lambda x: eval_knapsack_rag(x, values=values, weights=weights,
                                                        capacity=capacity, division=fraction)
@@ -103,8 +104,9 @@ def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
     )
 
     best_solution = solve_with_timer(ga_solver.solve, max_generations=200)
-    ga_solver.plot_history()
+    # ga_solver.plot_history()
     log_solution(values, weights, best_solution, fraction)
+    return best_solution
 
 
 def solve_genetic_algorithm_lib(values, weights, capacity, fraction,
@@ -134,10 +136,11 @@ def solve_genetic_algorithm_lib(values, weights, capacity, fraction,
     solve_with_timer(ga_instance.run)
     solution, solution_fitness, solution_idx = ga_instance.best_solution()
     log_solution(values, weights, solution, fraction)
+    return solution
 
 
 def solve_dual_annealing(values, weights, capacity, fraction,
-                         initial_temp=10460, maxiter=10000):
+                         initial_temp=10460, maxiter=10000) -> list[float]:
     logger.info("Dual Annealing Solution")
     fitness_function = lambda x: -1 * eval_knapsack(x, values=values, weights=weights,
                                                     capacity=capacity, division=fraction)
@@ -151,6 +154,7 @@ def solve_dual_annealing(values, weights, capacity, fraction,
     best_solution = solve_with_timer(sa_solver.solve)
     best_solution = [round(s) for s in best_solution]
     log_solution(values, weights, best_solution, fraction)
+    return best_solution
 
 
 def main():
@@ -170,11 +174,13 @@ def main():
     parser.add_argument("--log_file", type=str, default=None, help="Log file path")
 
     # GA hyperparameters
-    parser.add_argument("--ga_population_size", type=int, default=1000, help="Population size for GA solver")
-    parser.add_argument("--ga_num_parents", type=int, default=250, help="Number of parents for GA solver")
-    parser.add_argument("--ga_immigration_size", type=int, default=200, help="Immigration size for GA solver")
+    parser.add_argument("--ga_population_size", type=int, default=2000, help="Population size for GA solver")
+    parser.add_argument("--ga_num_parents", type=int, default=500, help="Number of parents for GA solver")
+    parser.add_argument("--ga_immigration_size", type=int, default=400, help="Immigration size for GA solver")
     parser.add_argument("--ga_parent_select_method", type=str, default="Tournament",
                         help="Parent selection method for GA solver")
+    parser.add_argument("--ga_crossover_rate", type=float, default=0.8, help="Crossover rate for GA solver")
+    parser.add_argument("--ga_mutation_rate", type=float, default=0.1, help="Mutation rate for GA solver")
 
     # GA_LIB hyperparameters
     parser.add_argument("--ga_lib_num_generations", type=int, default=200,
@@ -208,13 +214,32 @@ def main():
     )
     logger.get_logger().set_timestamp(False)
 
+    logger.info(f"Problem Configuration")
     logger.info(f"Fraction: {args.fraction}")
     logger.info(f"Capacity: {capacity}")
     logger.info(f"Weights: {weights}")
     logger.info(f"Values: {values}")
+    logger.info(f"Random seed: {args.random_seed}")
 
     # Convert string to enum and validate input
     solver_type = SolverType.from_string(args.solver)
+
+    logger.info(f"Solver Configuration ============")
+    logger.info(f"Solver: {solver_type.value}")
+    if solver_type == SolverType.GA:
+        properties = [(k, v) for k, v in vars(args).items() if k.startswith("ga_")]
+        for k, v in properties:
+            logger.info(f"{k}: {v}")
+    elif solver_type == SolverType.GA_LIB:
+        properties = [(k, v) for k, v in vars(args).items() if k.startswith("ga_lib_")]
+        for k, v in properties:
+            logger.info(f"{k}: {v}")
+    elif solver_type == SolverType.DA:
+        properties = [(k, v) for k, v in vars(args).items() if k.startswith("da_")]
+        for k, v in properties:
+            logger.info(f"{k}: {v}")
+
+    logger.info("End of Configuration ==========")
 
     # Dispatch to appropriate solver with hyperparameters
     solvers = {
@@ -256,7 +281,16 @@ def main():
     }
 
     # Execute selected solver
-    solvers[solver_type]()
+
+    start_time = time.time()
+    result = solvers[solver_type]()
+    end_time = time.time()
+
+    logger.info(f"Result Report ==========")
+    logger.info(f"Result: {result}")
+    logger.info(f"Fitness: {eval_knapsack(result, values, weights, capacity, args.fraction)}")
+    logger.info(f"Total elapsed time: {end_time - start_time:.4f} seconds")
+    logger.info("End of Report ==========")
 
 
 if __name__ == "__main__":
