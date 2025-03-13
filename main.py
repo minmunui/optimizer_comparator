@@ -195,9 +195,9 @@ def main():
                         help="Number of parents to keep for GA LIB solver")
 
     # Dual Annealing hyperparameters
-    parser.add_argument("--da_initial_temp", type=float, default=10460,
+    parser.add_argument("--da_initial_temp", type=float, default=5230,
                         help="Initial temperature for Dual Annealing solver")
-    parser.add_argument("--da_maxiter", type=int, default=10000, help="Maximum iterations for Dual Annealing solver")
+    parser.add_argument("--da_maxiter", type=int, default=5000, help="Maximum iterations for Dual Annealing solver")
 
     args = parser.parse_args()
 
