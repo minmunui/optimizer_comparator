@@ -116,12 +116,22 @@ class SimulatedAnnealingSolver(Solver):  # Optionally, inherit from Solver if re
 
 
 class DualAnnealingSolver(Solver):
+    """
+    Dual Annealing solver class that uses the scipy.optimize.dual_annealing function to optimize a given fitness function.
+
+    Args:
+        solution_type (list[int]): A list of integers indicating the range of each variable.
+        fitness_function (Callable[[list[int]], float]): A function that evaluates the fitness of a solution.
+        initial_temp (float): Initial temperature for the simulated annealing algorithm.
+        maxiter (int): Maximum number of iterations.
+        max_fun (int): Maximum number of function evaluations.
+    """
 
     def __init__(self,
                  solution_type: list[int],
                  fitness_function: Callable[[list[int]], float],
-                 initial_temp: float = 10460,
-                 maxiter: int = 10000,
+                 initial_temp: float = 5230,
+                 maxiter: int = 5000,
                  max_fun: int = None,
                  ):
         self.max_fun = max_fun if max_fun is not None else maxiter * 10
