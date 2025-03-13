@@ -1,8 +1,9 @@
 import os
 import pandas as pd
 
-path = "logs/ga_iter_frac4"
+path = "logs/da_iter_frac4"
 files = os.listdir(path)
+
 
 def trim_to_number(s: str) -> float:
     start = 0
@@ -17,28 +18,34 @@ def trim_to_number(s: str) -> float:
             break
     return float(s[start:end])
 
+
 def is_number(char):
     if char in "0123456789.":
         return True
     return False
 
+
 results = []
 
 for file in files:
-    mutation_rate, crossover_rate, seed = file.split("_")[1:4]
-    mutation_rate = trim_to_number(mutation_rate)
-    crossover_rate = trim_to_number(crossover_rate)
-    seed = trim_to_number(seed)
+    params = file.split("!")[1:]
+
+    record = {}
+    for param in params:
+        key, value = param.split("-")
+        record[key] = value
 
     with open(f"{path}/{file}", 'r') as f:
         lines = f.readlines()
         for line in lines:
             if "Fitness: " in line:
                 value = trim_to_number(line.split(":")[1])
+                record["value"] = value
             if "Total elapsed time: " in line:
                 time = trim_to_number(line.split(":")[1])
+                record["time"] = time
 
-    results.append({"mutation_rate": mutation_rate, "crossover_rate": crossover_rate, "seed": seed, "value": value, "time": time})
+    results.append(record)
 
 result_df = pd.concat([pd.DataFrame([result]) for result in results], ignore_index=True)
 result_df.to_csv("summary.csv", index=False)

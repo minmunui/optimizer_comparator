@@ -14,7 +14,7 @@ def run_with_params(params: dict) -> bool:
         params: Dictionary containing parameter values
     """
 
-    output_file = f"results_{parameter_status(list(params.values()), list(params.keys()))}.txt"
+    output_file = f"results!{parameter_status(list(params.values()), list(params.keys()))}.txt"
 
     # Construct command to execute
     command = f"python main.py {command_parameters(params)}"
@@ -71,10 +71,10 @@ def parameter_status(param_values: list[str], param_keys: list[str]) -> str:
         String representation of parameter values
     """
     print(f"param_values: {param_values}")
-    return "_".join([f"{key}-{value}" for key, value in zip(param_keys, param_values)])
+    return "!".join([f"{key}={value}" for key, value in zip(param_keys, param_values)])
 
 
-def command_parameters(params : dict) -> str:
+def command_parameters(params: dict) -> str:
     return " ".join([f"--{key} {value}" for key, value in params.items()])
 
 
