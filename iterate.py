@@ -90,11 +90,17 @@ def main():
     # seed_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     candidate_dict = {
-        "da_initial_temp": [2615, 5230, 10460, 20920],
-        "da_maxiter": [1000, 5000, 10000, 15000],
+        # "da_initial_temp": [2615, 5230, 10460, 20920],
+        # "da_maxiter": [1000, 5000, 10000, 15000],
+        # "random_seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        # "fraction": [4],
+        # "solver": ["da"]
+        "ga_crossover_rate": [1.0],
+        "ga_mutation_rate": [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3],
         "random_seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        "fraction": [4],
-        "solver": ["da"]
+        "ga_immigration_size": [100, 200, 300, 400, 500, 600],
+        "solver": ["ga"],
+        "fraction": [3, 4]
     }
 
     # Generate all parameter combinations
