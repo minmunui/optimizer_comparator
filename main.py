@@ -73,7 +73,7 @@ def solve_dynamic_programming(values, weights, capacity, fraction):
 def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
                             population_size=1000,
                             num_parents=250,
-                            immigration_size=200,
+                            num_elitism=2,
                             parent_select_method="Tournament",
                             crossover_rate: float = 0.8,
                             mutation_rate: float = 0.1,
@@ -96,11 +96,11 @@ def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
         population_size=population_size,
         solution_type=input_type,
         fitness_function=fitness_function,
-        immigration_size=immigration_size,
         num_parents=num_parents,
         parent_select_method=selection_method,
         crossover_rate=crossover_rate,
-        mutation_rate=mutation_rate
+        mutation_rate=mutation_rate,
+        num_elitism=num_elitism
     )
 
     best_solution = solve_with_timer(ga_solver.solve, max_generations=200)
@@ -176,11 +176,11 @@ def main():
     # GA hyperparameters
     parser.add_argument("--ga_population_size", type=int, default=2000, help="Population size for GA solver")
     parser.add_argument("--ga_num_parents", type=int, default=500, help="Number of parents for GA solver")
-    parser.add_argument("--ga_immigration_size", type=int, default=400, help="Immigration size for GA solver")
     parser.add_argument("--ga_parent_select_method", type=str, default="Tournament",
                         help="Parent selection method for GA solver")
     parser.add_argument("--ga_crossover_rate", type=float, default=0.8, help="Crossover rate for GA solver")
     parser.add_argument("--ga_mutation_rate", type=float, default=0.1, help="Mutation rate for GA solver")
+    parser.add_argument("--ga_num_elitism", type=int, default=2, help="Number of elite individuals to keep")
 
     # GA_LIB hyperparameters
     parser.add_argument("--ga_lib_num_generations", type=int, default=200,
@@ -250,17 +250,16 @@ def main():
             use_rag=False,
             population_size=args.ga_population_size,
             num_parents=args.ga_num_parents,
-            immigration_size=args.ga_immigration_size,
             parent_select_method=args.ga_parent_select_method,
             crossover_rate=args.ga_crossover_rate,
-            mutation_rate=args.ga_mutation_rate
+            mutation_rate=args.ga_mutation_rate,
+            num_elitism=args.ga_num_elitism
         ),
         SolverType.GA_RAG: lambda: solve_genetic_algorithm(
             values, weights, capacity, args.fraction,
             use_rag=True,
             population_size=args.ga_population_size,
             num_parents=args.ga_num_parents,
-            immigration_size=args.ga_immigration_size,
             parent_select_method=args.ga_parent_select_method,
             crossover_rate=args.ga_crossover_rate,
             mutation_rate=args.ga_mutation_rate
