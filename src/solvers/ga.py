@@ -37,7 +37,6 @@ class MyGaSolver(Solver):
                  crossover_rate: float = 0.8,
                  mutation_rate: float = -1,
                  num_elitism: int = 2,
-                 immigration_size: int = None,
                  parent_select_method: ParentSelectionMethod = ParentSelectionMethod.Tournament,
                  crossover_method: CrossoverMethod = CrossoverMethod.Sequential,
                  ):
@@ -51,11 +50,9 @@ class MyGaSolver(Solver):
         :param crossover_rate: probability of crossover between parents (normally 0.7~0.9)
         :param mutation_rate: probability of mutation of a solution (normally 0.001~0.05)
         :param num_elitism: number of the best solutions to be passed to the next generation
-        :param immigration_size: number of new solutions to be added to the population in each generation
         """
 
         self.history = []
-        self.immigration_size = immigration_size if immigration_size >= 0 else population_size // 10
         self.solution_length = len(solution_type)
         self.solution_type = solution_type
         self.fitness_function = fitness_function
