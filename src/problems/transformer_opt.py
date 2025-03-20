@@ -90,9 +90,6 @@ class SchematicNode:
             return [self]
         return self.parent.trace_root() + [self]
 
-    def trace_outage_rate(self) -> float:
-        return sum([facility.outage_rates for facility in self.trace_root() if not facility.is_load])
-
     def trace_outage_rate_variable(self):
         linked_facilities = [facility for facility in self.trace_root() if not facility.is_load]
         outage_rate_variable = sum([facility.get_outage_rate_variable() for facility in linked_facilities])
@@ -108,6 +105,27 @@ class SchematicNode:
     def get_outage_rate_variable(self):
         return sum(
             [outage_rate * variable for outage_rate, variable in zip(self.outage_rates, self.strategy_variables)])
+
+    def get_outage_rate(self, strategy: list[int]):
+        dict_strategy = dict(zip([m.name for m in SchematicNode.machines if not m.is_load], strategy))
+        upper_machines = [m for m in self.trace_root() if not m.is_load]
+        return sum([m.outage_rates[dict_strategy[m.name]] for m in upper_machines])
+
+    def get_cic(self, strategy: list[int]):
+        return sum(
+            [load.trace_average_repair_time() * load.outage_cost * load.load * load.get_outage_rate(strategy) for load
+             in SchematicNode.loads])
+
+    def get_ens(self, strategy: list[int]):
+        return sum(
+            [load.load * load.get_outage_rate(strategy) * load.trace_average_repair_time() for load in SchematicNode.loads])
+
+    def get_saifi(self, strategy: list[int]):
+        return sum([load.get_outage_rate(strategy) * load.num_user for load in SchematicNode.loads]) / sum(
+            [load.num_user for load in SchematicNode.loads])
+
+    def get_objective_value(self, strategy: list[int], weight_cic=WEIGHT_FOR_CIC, weight_ens=WEIGHT_FOR_ENS, weight_saifi=WEIGHT_FOR_SAIFI):
+        return weight_cic * self.get_cic(strategy) + weight_ens * self.get_ens(strategy) + weight_saifi * self.get_saifi(strategy)
 
     def remove_child(self, child):
         self.children.remove(child)
