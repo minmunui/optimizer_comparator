@@ -25,23 +25,31 @@ scip_solver = pywraplp.Solver.CreateSolver('SCIP')
 NUM_MACHINES = 51
 NUM_STRATEGY = 4
 NUM_OUTABLE_MACHINE = 37
+NUM_LOADS = 14
 
 # Left side of hierarchy tree
 
-PF_01 = SchematicNode(name='PF-01', is_load=True)
-PF_02 = SchematicNode(name='PF-02', is_load=True)
-PF_03 = SchematicNode(name='PF-03', is_load=True)
-PF_05 = SchematicNode(name='PF-05', is_load=True)
-PF_06 = SchematicNode(name='PF-06', is_load=True)
-PF_07 = SchematicNode(name='PF-07', is_load=True)
-PF_08 = SchematicNode(name='PF-08', is_load=True)
+outage_costs = [random.randint(5000, 10000) for _ in range(NUM_LOADS)]
+print(f"outage_costs : {outage_costs}")
+loads = [random.randint(1, 10) * 1000 for _ in range(NUM_LOADS)]
+print(f"loads : {loads}")
+num_user = [random.randint(1, 10) * 1000 for _ in range(NUM_LOADS)]
+print(f"num_users_of_loads : {num_user}")
 
-PF_201 = SchematicNode(name='PF-201', is_load=True)
-PF_202 = SchematicNode(name='PF-202', is_load=True)
-PF_203 = SchematicNode(name='PF-203', is_load=True)
-PF_204 = SchematicNode(name='PF-204', is_load=True)
-PF_205 = SchematicNode(name='PF-205', is_load=True)
-PF_04 = SchematicNode(name='PF-04', is_load=True)
+PF_01 = SchematicNode(name='PF-01', num_user=num_user[0], outage_cost=outage_costs[0], load=loads[0])
+PF_02 = SchematicNode(name='PF-02', num_user=num_user[1], outage_cost=outage_costs[1], load=loads[1])
+PF_03 = SchematicNode(name='PF-03', num_user=num_user[2], outage_cost=outage_costs[2], load=loads[2])
+PF_05 = SchematicNode(name='PF-05', num_user=num_user[3], outage_cost=outage_costs[3], load=loads[3])
+PF_06 = SchematicNode(name='PF-06', num_user=num_user[4], outage_cost=outage_costs[4], load=loads[4])
+PF_07 = SchematicNode(name='PF-07', num_user=num_user[5], outage_cost=outage_costs[5], load=loads[5])
+PF_08 = SchematicNode(name='PF-08', num_user=num_user[6], outage_cost=outage_costs[6], load=loads[6])
+
+PF_201 = SchematicNode(name='PF-201', num_user=num_user[7], outage_cost=outage_costs[7], load=loads[7])
+PF_202 = SchematicNode(name='PF-202', num_user=num_user[8], outage_cost=outage_costs[8], load=loads[8])
+PF_203 = SchematicNode(name='PF-203', num_user=num_user[9], outage_cost=outage_costs[9], load=loads[9])
+PF_204 = SchematicNode(name='PF-204', num_user=num_user[10], outage_cost=outage_costs[10], load=loads[10])
+PF_205 = SchematicNode(name='PF-205', num_user=num_user[11], outage_cost=outage_costs[11], load=loads[11])
+PF_04 = SchematicNode(name='PF-04', num_user=num_user[12], outage_cost=outage_costs[12], load=loads[12])
 
 # 37
 
@@ -68,7 +76,7 @@ VCB_A_3 = get_random_schematic_node(name='VCB_A_3', children=[BUS_A])
 
 VCB_A_2 = get_random_schematic_node(name='VCB_A_2', children=[VCB_A_3])
 
-PF_09 = SchematicNode(name='PF-09', is_load=True)
+PF_09 = SchematicNode(name='PF-09', num_user=num_user[13], outage_cost=outage_costs[13], load=loads[13])
 VCB_09 = get_random_schematic_node(name='VCB_09', children=[PF_09])
 
 BUS_09 = get_random_schematic_node(name='BUS_09', children=[VCB_09, VCB_A_2])
@@ -108,31 +116,18 @@ cable_head_main.print_tree()
 strategy_variables = make_strategy_constraint(solver=scip_solver, num_machine=NUM_OUTABLE_MACHINE,
                                               num_strategy=NUM_STRATEGY)
 
-print(strategy_variables)
 outable_machines = [machine for machine in machines if not machine.is_load]
-print(f"outable_machines : {outable_machines}")
 
 for index, outable_machine in enumerate(outable_machines):
     outable_machine.strategy_variables = strategy_variables[index]
 
 average_repair_times = [load.trace_average_repair_time() for load in load_machines]
-print(f"average_repair_times : {average_repair_times}")
-
-outage_costs = [random.randint(5000, 10000) for _ in range(len(load_machines))]
-print(f"outage_costs : {outage_costs}")
-
-loads = [random.randint(1, 10) * 1000 for _ in range(len(load_machines))]
-print(f"loads : {loads}")
 
 outage_rates = [machine.trace_outage_rate_variable() for machine in outable_machines]
-print(f"outage_rates : {outage_rates}")
-
 strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGY-1)]) for _ in range(
     NUM_OUTABLE_MACHINE)]
-print(f"strategy_costs : {strategy_costs}")
 
-num_users_of_loads = [random.randint(1, 10) * 1000 for _ in range(len(load_machines))]
-print(f"num_users_of_loads : {num_users_of_loads}")
+
 
 make_cost_constraint(scip_solver, strategy_variables, strategy_costs, 50000)
 outage_rate_variables_of_loads = [machine.get_outage_rate_variable() for machine in outable_machines]
@@ -142,13 +137,10 @@ CIC_WEIGHT = 1/3.0
 ENS_WEIGHT = 1/3.0
 SAIFI_WEIGHT = 1/3.0
 
-cic = sum([average_repair_times[i] * outage_costs[i] * loads[i] * outage_rate_variables_of_loads[i] for i in range(len(load_machines))])
-ens = sum([loads[i] * outage_rate_variables_of_loads[i] * average_repair_times[i] for i in range(len(load_machines))])
-saifi = sum([num_users_of_loads[i] * outage_rate_variables_of_loads[i] for i in range(len(load_machines))]) / sum(num_users_of_loads)
+cic = sum([load.trace_average_repair_time() * load.outage_cost * load.load * load.trace_outage_rate_variable() for load in load_machines])
+ens = sum([load.load * load.trace_outage_rate_variable() * load.trace_average_repair_time() for load in load_machines])
+saifi = sum([load.trace_outage_rate_variable() * load.num_user for load in load_machines]) / sum([load.num_user for load in load_machines])
 
-print(f"cic : {cic}")
-print(f"ens : {ens}")
-print(f"saifi : {saifi}")
 
 scip_solver.Minimize(CIC_WEIGHT * cic + ENS_WEIGHT * ens + SAIFI_WEIGHT * saifi)
 
@@ -157,9 +149,30 @@ status = scip_solver.Solve()
 if status == pywraplp.Solver.OPTIMAL:
     print('Solution:')
     print(f'Objective value = {scip_solver.Objective().Value()}')
+
+    # print machine name
+    for machine in outable_machines:
+        print(f"{machine.name:24}", end='')
+    print()
+
+    for repair_time in [machine.average_outage_time for machine in outable_machines]:
+        print(f"{repair_time:<24.0f}", end='')
+
+    # print costs of strategies
+    for costs in strategy_costs:
+        for cost in costs:
+            print(f"{cost:<6}", end='')
+    print()
+
     for index, machine in enumerate(outable_machines):
-        print(f'{machine.name} : ', end='')
         for strategy in range(NUM_STRATEGY):
-            print(f'{strategy_variables[index][strategy].solution_value()} ', end='')
+            print(f'{strategy_variables[index][strategy].solution_value():<6}', end='')
+
+    print()
+
+    for index, machine in enumerate(outable_machines):
+        for strategy in range(NUM_STRATEGY):
+            print(f'{machine.outage_rates[strategy]:<6.3f}', end='')
+
 else:
     print('The problem does not have an optimal solution.')
