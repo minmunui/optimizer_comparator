@@ -16,16 +16,47 @@ WEIGHT_FOR_ENS = 1.0 / 3.0
 WEIGHT_FOR_SAIFI = 1.0 / 3.0
 
 
+def get_cic(strategy: list[int]):
+    return sum(
+        [load.trace_average_repair_time() * load.outage_cost * load.load * load.get_outage_rate(strategy) for load
+         in SchematicNode.loads])
+
+
+def get_saifi(strategy: list[int]):
+    return sum([load.get_outage_rate(strategy) * load.num_user for load in SchematicNode.loads]) / sum(
+        [load.num_user for load in SchematicNode.loads])
+
+
+def get_ens(strategy: list[int]):
+    return sum(
+        [load.load * load.get_outage_rate(strategy) * load.trace_average_repair_time() for load in SchematicNode.loads])
+
+
+def get_objective_value(strategy: list[int], weight_cic=WEIGHT_FOR_CIC, weight_ens=WEIGHT_FOR_ENS,
+                        weight_saifi=WEIGHT_FOR_SAIFI, max_cost=50000):
+    total_cost = get_strategy_cost(strategy)
+    if total_cost > max_cost:
+        return -1_000_000_000
+    return weight_cic * get_cic(strategy) + weight_ens * get_ens(strategy) + weight_saifi * get_saifi(strategy)
+
+
+def get_strategy_cost(strategy: list[int]):
+    return sum(
+        [machine.strategy_costs[strategy[index]] for index, machine in enumerate(SchematicNode.outable_machines)])
+
+
 class SchematicNode:
     num_facility = 0
     loads = []
     machines = []
+    outable_machines = []
 
     def __init__(self,
                  name: str = None,
                  children: list['SchematicNode'] = None,
                  parent: 'SchematicNode' = None,
                  strategy_variables: list[Variable] = None,
+                 strategy_costs: list[float] = None,
                  outage_rates: list[float] = None,
                  average_outage_time: float = None,
                  num_user: int = None,
@@ -52,6 +83,7 @@ class SchematicNode:
             SchematicNode.loads.append(self)
         elif load is None and num_user is None and outage_cost is None:
             self.is_load = False
+            SchematicNode.outable_machines.append(self)
         else:
             raise ValueError(f"load, num_user, outage_cost should be all None or all not None")
 
@@ -66,6 +98,7 @@ class SchematicNode:
         self.outage_rates = outage_rates
         self.average_outage_time = average_outage_time
         self.strategy_variables = strategy_variables
+        self.strategy_costs = strategy_costs
 
     def add_child(self, child):
         if isinstance(child, list):
@@ -111,22 +144,6 @@ class SchematicNode:
         upper_machines = [m for m in self.trace_root() if not m.is_load]
         return sum([m.outage_rates[dict_strategy[m.name]] for m in upper_machines])
 
-    def get_cic(self, strategy: list[int]):
-        return sum(
-            [load.trace_average_repair_time() * load.outage_cost * load.load * load.get_outage_rate(strategy) for load
-             in SchematicNode.loads])
-
-    def get_ens(self, strategy: list[int]):
-        return sum(
-            [load.load * load.get_outage_rate(strategy) * load.trace_average_repair_time() for load in SchematicNode.loads])
-
-    def get_saifi(self, strategy: list[int]):
-        return sum([load.get_outage_rate(strategy) * load.num_user for load in SchematicNode.loads]) / sum(
-            [load.num_user for load in SchematicNode.loads])
-
-    def get_objective_value(self, strategy: list[int], weight_cic=WEIGHT_FOR_CIC, weight_ens=WEIGHT_FOR_ENS, weight_saifi=WEIGHT_FOR_SAIFI):
-        return weight_cic * self.get_cic(strategy) + weight_ens * self.get_ens(strategy) + weight_saifi * self.get_saifi(strategy)
-
     def remove_child(self, child):
         self.children.remove(child)
 
@@ -137,10 +154,10 @@ class SchematicNode:
 
 
 def make_cost_constraint(solver: pywraplp.Solver,
-                         strategy_variables: list[list[Variable]],
-                         strategy_cost: list[list[float]],
                          max_cost: int):
-    flattened_cost = [cost for strategy in strategy_cost for cost in strategy]
+    strategy_costs = [machine.strategy_costs for machine in SchematicNode.outable_machines]
+    strategy_variables = [machine.strategy_variables for machine in SchematicNode.outable_machines]
+    flattened_cost = [cost for strategy in strategy_costs for cost in strategy]
     flattened_variables = [variable for strategy in strategy_variables for variable in strategy]
     solver.Add(sum([cost * variable for cost, variable in zip(flattened_cost, flattened_variables)]) <= max_cost)
 
