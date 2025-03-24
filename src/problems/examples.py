@@ -1,13 +1,15 @@
 import random
+import time
 
 from ortools.linear_solver import pywraplp
 
 from src.solvers.ga import MyGaSolver
 from transformer_opt import SchematicNode, NUM_STRATEGY, make_strategy_constraint, make_cost_constraint, \
-    get_objective_value, get_strategy_cost
+    get_objective_reliability, get_strategy_cost, solution_to_strategy, \
+    get_cic_sensitivity, get_ens_sensitivity, \
+    get_saifi_sensitivity, apply_reliability_objectives
 
 random.seed(42)
-
 
 def get_random_outage_rate():
     return sorted([random.randint(1, 100) / 10000.0 for _ in range(NUM_STRATEGY)], reverse=True)
@@ -134,28 +136,30 @@ outage_rates = [machine.trace_outage_rate_variable() for machine in outable_mach
 strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGY - 1)]) for _ in range(
     NUM_OUTABLE_MACHINE)]
 
-make_cost_constraint(scip_solver, 50000)
 outage_rate_variables_of_loads = [machine.get_outage_rate_variable() for machine in outable_machines]
 mean_repair_times = [_load.trace_average_repair_time() for _load in load_machines]
 
-CIC_WEIGHT = 1 / 3.0
-ENS_WEIGHT = 1 / 3.0
-SAIFI_WEIGHT = 1 / 3.0
 
-cic = sum(
-    [load.trace_average_repair_time() * load.outage_cost * load.load * load.trace_outage_rate_variable() for load in
-     load_machines])
-ens = sum([load.load * load.trace_outage_rate_variable() * load.trace_average_repair_time() for load in load_machines])
-saifi = sum([load.trace_outage_rate_variable() * load.num_user for load in load_machines]) / sum(
-    [load.num_user for load in load_machines])
-
-scip_solver.Minimize(CIC_WEIGHT * cic + ENS_WEIGHT * ens + SAIFI_WEIGHT * saifi)
-
+make_cost_constraint(scip_solver, 2500)
+apply_reliability_objectives(scip_solver)
 status = scip_solver.Solve()
 
 if status == pywraplp.Solver.OPTIMAL:
-    print('Solution:')
+    print('Solution for SCIP solver:')
     print(f'Objective value = {scip_solver.Objective().Value()}')
+
+    solution = [[int(strategy.solution_value()) for strategy in machine.strategy_variables] for machine in
+                outable_machines]
+
+    solution = solution_to_strategy(solution)
+
+    print(f'Solution: {solution}')
+    print(f"Objective value: {get_objective_reliability(solution, is_overcost_penalty=True)}")
+    print(f"Sensitive CIC : {get_cic_sensitivity(solution)}")
+    print(f"Sensitive ENS : {get_ens_sensitivity(solution)}")
+    print(f"Sensitive SAIFI : {get_saifi_sensitivity(solution)}")
+
+    print(f"Strategy cost: {get_strategy_cost(solution)}")
 
     # print machine name
     for machine in outable_machines:
@@ -164,7 +168,7 @@ if status == pywraplp.Solver.OPTIMAL:
 
     for repair_time in [machine.average_outage_time for machine in outable_machines]:
         print(f"{repair_time:<24.0f}", end='')
-
+    print()
     # print costs of strategies
     for costs in strategy_costs:
         for cost in costs:
@@ -176,7 +180,6 @@ if status == pywraplp.Solver.OPTIMAL:
             print(f'{strategy_variables[index][strategy].solution_value():<6}', end='')
 
     print()
-
 
     for index, machine in enumerate(outable_machines):
         for strategy in range(NUM_STRATEGY):
@@ -192,15 +195,20 @@ else:
     print('The problem does not have an optimal solution.')
 
 ga_solver = MyGaSolver(
-    population_size=4000,
+    population_size=2000,
     solution_type=[3] * NUM_OUTABLE_MACHINE,
-    fitness_function=lambda x: -1 * get_objective_value(x),
+    fitness_function=lambda x: get_objective_reliability(x, max_cost=2500, is_overcost_penalty=True),
     mutation_rate=0.8,
     crossover_rate=1.0,
 )
 
 print()
-best_solution = ga_solver.solve(max_generations=400)
-print(f"Best solution: {best_solution}")
-print(f"Objective value: {get_objective_value(best_solution)}")
+start_time = time.time()
+best_solution = ga_solver.solve(max_generations=200)
+end_time = time.time()
+print(f"Execution time: {end_time - start_time} seconds")
+print(f"Solution: {best_solution}")
+print(f"Objective value: {get_objective_reliability(best_solution, is_overcost_penalty=True)}")
 print(f"Strategy cost: {get_strategy_cost(best_solution)}")
+
+ga_solver.plot_history()

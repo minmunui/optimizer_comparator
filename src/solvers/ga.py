@@ -41,8 +41,6 @@ class MyGaSolver(Solver):
                  crossover_method: CrossoverMethod = CrossoverMethod.Sequential,
                  ):
         """
-
-
         :param solution_type: array of input ranges for each parameter of the solution (e.g. [10, 20, 30])
         :param fitness_function: fitness function to evaluate the solution. as higher the value, the better the solution
         :param population_size: population size of the genetic algorithm (normally 50~200)

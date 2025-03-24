@@ -16,10 +16,37 @@ WEIGHT_FOR_ENS = 1.0 / 3.0
 WEIGHT_FOR_SAIFI = 1.0 / 3.0
 
 
+def get_init_cic():
+    init_strategy = [0] * len(SchematicNode.outable_machines)
+    return (sum(
+        [load.trace_average_repair_time() * load.outage_cost * load.load * load.get_outage_rate(init_strategy) for
+         load in SchematicNode.loads]))
+
+
 def get_cic(strategy: list[int]):
     return sum(
         [load.trace_average_repair_time() * load.outage_cost * load.load * load.get_outage_rate(strategy) for load
          in SchematicNode.loads])
+
+
+def get_cic_variables():
+    return sum(
+        [load.trace_average_repair_time() * load.outage_cost * load.load * load.trace_outage_rate_variable() for load in
+         SchematicNode.loads])
+
+
+def get_cic_sensitivity(strategy: list[int]):
+    return get_init_cic() - get_cic(strategy)
+
+
+def get_cic_sensitivity_variables():
+    return get_init_cic() - get_cic_variables()
+
+
+def get_init_saifi():
+    init_strategy = [0] * len(SchematicNode.outable_machines)
+    return sum([load.get_outage_rate(init_strategy) * load.num_user for load in SchematicNode.loads]) / sum(
+        [load.num_user for load in SchematicNode.loads])
 
 
 def get_saifi(strategy: list[int]):
@@ -27,22 +54,65 @@ def get_saifi(strategy: list[int]):
         [load.num_user for load in SchematicNode.loads])
 
 
+def get_saifi_variables():
+    return sum([load.trace_outage_rate_variable() * load.num_user for load in SchematicNode.loads]) / sum(
+        [load.num_user for load in SchematicNode.loads])
+
+
+def get_saifi_sensitivity(strategy: list[int]):
+    return get_init_saifi() - get_saifi(strategy)
+
+
+def get_saifi_sensitivity_variables():
+    return get_init_saifi() - get_saifi_variables()
+
+
+def get_init_ens():
+    init_strategy = [0] * len(SchematicNode.outable_machines)
+    return sum([load.load * load.get_outage_rate(init_strategy) * load.trace_average_repair_time() for load in
+                SchematicNode.loads])
+
+
 def get_ens(strategy: list[int]):
     return sum(
         [load.load * load.get_outage_rate(strategy) * load.trace_average_repair_time() for load in SchematicNode.loads])
 
 
-def get_objective_value(strategy: list[int], weight_cic=WEIGHT_FOR_CIC, weight_ens=WEIGHT_FOR_ENS,
-                        weight_saifi=WEIGHT_FOR_SAIFI, max_cost=50000):
+def get_ens_variables():
+    return sum([load.load * load.trace_outage_rate_variable() * load.trace_average_repair_time() for load in
+                SchematicNode.loads])
+
+
+def get_ens_sensitivity(strategy: list[int]):
+    return get_init_ens() - get_ens(strategy)
+
+
+def get_ens_sensitivity_variables():
+    return get_init_ens() - get_ens_variables()
+
+
+def get_objective_reliability(strategy: list[int], weight_cic=WEIGHT_FOR_CIC, weight_ens=WEIGHT_FOR_ENS,
+                              weight_saifi=WEIGHT_FOR_SAIFI, max_cost=50000, is_overcost_penalty=False):
     total_cost = get_strategy_cost(strategy)
     if total_cost > max_cost:
-        return -1_000_000_000
-    return weight_cic * get_cic(strategy) + weight_ens * get_ens(strategy) + weight_saifi * get_saifi(strategy)
+        if is_overcost_penalty:
+            return (max_cost - total_cost) / 1_000_000_000
+        return 0
+    return weight_cic * get_cic_sensitivity(strategy) + weight_ens * get_ens_sensitivity(
+        strategy) + weight_saifi * get_saifi_sensitivity(strategy)
+
+
+def get_objective_cost(strategy: list[int]):
+    return get_strategy_cost(strategy)
 
 
 def get_strategy_cost(strategy: list[int]):
     return sum(
         [machine.strategy_costs[strategy[index]] for index, machine in enumerate(SchematicNode.outable_machines)])
+
+
+def solution_to_strategy(solution: list[list[int]]):
+    return [strategy.index(1) for strategy in solution]
 
 
 class SchematicNode:
@@ -153,13 +223,16 @@ class SchematicNode:
             child.print_tree(depth + 1)
 
 
-def make_cost_constraint(solver: pywraplp.Solver,
-                         max_cost: int):
+def cost_variables():
     strategy_costs = [machine.strategy_costs for machine in SchematicNode.outable_machines]
     strategy_variables = [machine.strategy_variables for machine in SchematicNode.outable_machines]
     flattened_cost = [cost for strategy in strategy_costs for cost in strategy]
     flattened_variables = [variable for strategy in strategy_variables for variable in strategy]
-    solver.Add(sum([cost * variable for cost, variable in zip(flattened_cost, flattened_variables)]) <= max_cost)
+    return sum([cost * variable for cost, variable in zip(flattened_cost, flattened_variables)])
+
+
+def make_cost_constraint(solver: pywraplp.Solver, max_cost: int):
+    solver.Add(cost_variables() <= max_cost)
 
 
 def make_strategy_constraint(solver: pywraplp.Solver,
@@ -176,3 +249,15 @@ def make_strategy_constraint(solver: pywraplp.Solver,
         solver.Add(sum(x[_machine][_strategy] for _strategy in range(num_strategy)) == 1)
 
     return x
+
+
+def apply_reliability_objectives(solver: pywraplp.Solver,
+                                 cic_weight: float = 1 / 3.0,
+                                 ens_weight: float = 1 / 3.0,
+                                 saifi_weight: float = 1 / 3.0
+                                 ):
+    solver.Maximize(
+        cic_weight * get_cic_sensitivity_variables() +
+        ens_weight * get_ens_sensitivity_variables() +
+        saifi_weight * get_saifi_sensitivity_variables()
+    )
