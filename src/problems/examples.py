@@ -11,6 +11,7 @@ from transformer_opt import SchematicNode, NUM_STRATEGY, make_strategy_constrain
 
 random.seed(42)
 
+
 def get_random_outage_rate():
     return sorted([random.randint(1, 100) / 10000.0 for _ in range(NUM_STRATEGY)], reverse=True)
 
@@ -31,9 +32,7 @@ def get_random_schematic_node(name: str = None, children: list[SchematicNode] = 
 
 scip_solver = pywraplp.Solver.CreateSolver('SCIP')
 
-NUM_MACHINES = 51
 NUM_STRATEGY = 4
-NUM_OUTABLE_MACHINE = 37
 NUM_LOADS = 14
 
 # Left side of hierarchy tree
@@ -118,11 +117,12 @@ GIS_TL = get_random_schematic_node(name='GIS_TL', children=[BUS_main])
 cable_head_main = get_random_schematic_node(name='Cable head_main', children=[GIS_TL])
 
 load_machines = SchematicNode.loads
+num_outable_machine = len(SchematicNode.outable_machines)
 machines = SchematicNode.machines
 
 cable_head_main.print_tree()
 
-strategy_variables = make_strategy_constraint(solver=scip_solver, num_machine=NUM_OUTABLE_MACHINE,
+strategy_variables = make_strategy_constraint(solver=scip_solver, num_machine=num_outable_machine,
                                               num_strategy=NUM_STRATEGY)
 
 outable_machines = [machine for machine in SchematicNode.outable_machines]
@@ -134,11 +134,10 @@ average_repair_times = [load.trace_average_repair_time() for load in load_machin
 
 outage_rates = [machine.trace_outage_rate_variable() for machine in outable_machines]
 strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGY - 1)]) for _ in range(
-    NUM_OUTABLE_MACHINE)]
+    num_outable_machine)]
 
 outage_rate_variables_of_loads = [machine.get_outage_rate_variable() for machine in outable_machines]
 mean_repair_times = [_load.trace_average_repair_time() for _load in load_machines]
-
 
 make_cost_constraint(scip_solver, 2500)
 apply_reliability_objectives(scip_solver)
@@ -196,7 +195,7 @@ else:
 
 ga_solver = MyGaSolver(
     population_size=2000,
-    solution_type=[3] * NUM_OUTABLE_MACHINE,
+    solution_type=[3] * num_outable_machine,
     fitness_function=lambda x: get_objective_reliability(x, max_cost=2500, is_overcost_penalty=True),
     mutation_rate=0.8,
     crossover_rate=1.0,
