@@ -1,5 +1,3 @@
-import random
-
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Variable
 
