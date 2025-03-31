@@ -1,3 +1,6 @@
+import json
+from typing import Optional, Any
+
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Variable
 
@@ -191,6 +194,11 @@ class SchematicNode:
             return [self]
         return self.parent.trace_root() + [self]
 
+    def get_root(self) -> 'SchematicNode':
+        if self.is_root():
+            return self
+        return self.parent.get_root()
+
     def trace_outage_rate_variable(self):
         linked_facilities = [facility for facility in self.trace_root() if not facility.is_load]
         outage_rate_variable = sum([facility.get_outage_rate_variable() for facility in linked_facilities])
@@ -219,6 +227,104 @@ class SchematicNode:
         print(' ' * depth, self.name)
         for child in self.children:
             child.print_tree(depth + 1)
+
+    @classmethod
+    def from_json_dict(cls, json_dict: dict[str, Any], parent: Optional['SchematicNode'] = None) -> 'SchematicNode':
+        """JSON 딕셔너리에서 SchematicNode 객체 생성"""
+        # 기본 속성 추출
+        name = json_dict.get('name')
+
+        # load 노드인 경우
+        if json_dict.get('is_load', False):
+            node = cls(
+                name=name,
+                parent=parent,
+                load=json_dict.get('load'),
+                num_user=json_dict.get('num_user'),
+                outage_cost=json_dict.get('outage_cost')
+            )
+        # facility 노드인 경우
+        else:
+            # strategy_variables는 Variable 객체 리스트이므로 역직렬화가 어려울 수 있음
+            # 여기서는 간단히 None으로 설정하고, 필요에 따라 나중에 설정하도록 함
+            node = cls(
+                name=name,
+                parent=parent,
+                outage_rates=json_dict.get('outage_rates'),
+                average_outage_time=json_dict.get('average_outage_time'),
+                strategy_costs=json_dict.get('strategy_costs'),
+                strategy_variables=None  # 나중에 별도로 설정 필요
+            )
+
+        # 자식 노드 재귀적으로 생성
+        children_data = json_dict.get('children', [])
+        for child_data in children_data:
+            cls.from_json_dict(child_data, parent=node)
+
+        return node
+
+    def to_json(self) -> dict[str, Any]:
+        """현재 노드와 모든 하위 노드를 JSON으로 직렬화"""
+        node_dict = {
+            'name': self.name,
+            'id': self.id,
+            'is_load': self.is_load
+        }
+
+        # load 관련 속성 추가
+        if self.is_load:
+            node_dict.update({
+                'load': self.load,
+                'num_user': self.num_user,
+                'outage_cost': self.outage_cost
+            })
+        # facility 관련 속성 추가
+        else:
+            if self.outage_rates is not None:
+                node_dict['outage_rates'] = self.outage_rates
+            if self.average_outage_time is not None:
+                node_dict['average_outage_time'] = self.average_outage_time
+            if self.strategy_costs is not None:
+                node_dict['strategy_costs'] = self.strategy_costs
+
+            # strategy_variables는 Variable 객체 리스트이므로 직렬화가 어려울 수 있음
+            # 실제 구현에서는 Variable 클래스의 직렬화 방법에 따라 조정 필요
+            if self.strategy_variables is not None:
+                node_dict['strategy_variables_count'] = len(self.strategy_variables)
+
+        node_dict['children'] = [child.to_json() for child in self.children]
+
+        return node_dict
+
+    def to_json_string(self, indent=2) -> str:
+        """트리 구조를 JSON 문자열로 변환"""
+        return json.dumps(self.to_json(), indent=indent)
+
+    def save_to_json_file(self, filename: str) -> None:
+        """트리 구조를 JSON 파일로 저장"""
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(self.to_json(), f, indent=2)
+
+    @classmethod
+    def from_json_string(cls, json_string: str) -> 'SchematicNode':
+        """JSON 문자열에서 트리 구조 로드"""
+        json_dict = json.loads(json_string)
+        return cls.from_json_dict(json_dict)
+
+    @classmethod
+    def from_json_file(cls, filename: str) -> 'SchematicNode':
+        """JSON 파일에서 트리 구조 로드"""
+        with open(filename, 'r', encoding='utf-8') as f:
+            json_dict = json.load(f)
+        return cls.from_json_dict(json_dict)
+
+    @classmethod
+    def reset_class_variables(cls):
+        """클래스 변수 초기화 (새로운 트리 로드 시 사용)"""
+        cls.num_facility = 0
+        cls.loads = []
+        cls.machines = []
+        cls.outable_machines = []
 
 
 def cost_variables():
