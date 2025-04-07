@@ -40,10 +40,13 @@ class MachineNode:
         self.average_outage_time = average_outage_time
 
     def __str__(self):
-        return f"SchematicNode({self.name}, {self.num_user}, {self.outage_cost}, {self.load}, {self.outage_rates}, {self.strategy_costs}, {self.average_outage_time}, {self.children}, {self.parent})"
+        return f"SchematicNode({self.name}, {self.num_user}, {self.outage_cost}, {self.load}, {self.outage_rates}, {self.strategy_costs}, {self.average_outage_time}, {[child.name for child in self.children]}, {self.parent.name if self.parent is not None else None})"
 
     def __repr__(self):
         return self.name
+
+    def __format__(self, format_spec):
+        return self.__str__()
 
     def add_child(self, child: 'MachineNode'):
         self.children.append(child)
