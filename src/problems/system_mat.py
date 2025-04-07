@@ -1,4 +1,10 @@
 import random
+import time
+
+import numpy as np
+from ortools.linear_solver import pywraplp
+
+random.seed(41)
 
 
 class MachineNode:
@@ -20,6 +26,7 @@ class MachineNode:
         self.id = MachineNode.id
         self.name = name if name is not None else f"Node{self.id}"
         MachineNode.id += 1
+        self.strategy_variables = []
 
         self.num_user = num_user
         self.outage_cost = outage_cost
@@ -63,7 +70,6 @@ class MachineNode:
 
     def add_children(self, children: list['MachineNode']):
         for child in children:
-            print(f"Adding {child.name} to {self.name}")
             self.add_child(child)
         return children
 
@@ -141,8 +147,8 @@ class MachineNode:
 
     def get_average_outage_time(self):
         if self.is_load:
-            return sum(machine.average_outage_time for machine in self.trace_root() if machine.is_outable()) / len(
-                self.trace_root())
+            return sum(machine.average_outage_time for machine in self.trace_root() if machine.is_outable()) / (len(
+                self.trace_root()) - 1)
         raise ValueError(f"Node {self.name} is not a load machine")
 
 
@@ -224,23 +230,179 @@ class SystemDiagram:
     def make_saifi_sensitivity_matrix(self):
         return [machine.get_saifi_sensitivity() for machine in self.outable_machines]
 
+    def make_cost_matrix(self):
+        return [machine.strategy_costs for machine in self.outable_machines]
+
+    def optimize_maintenance(self, ignore_strategy_nothing: bool = False, cost: float = 0, w_saifi: float = 1,
+                             w_cic: float = 1,
+                             w_ens: float = 1,
+                             print_interval: int = 12):
+        optimizer = pywraplp.Solver.CreateSolver('SCIP')
+        strategy_variables = []
+        for outable_machine in self.outable_machines:
+            for index, strategy in enumerate(outable_machine.strategy_costs):
+                if strategy == 0 and ignore_strategy_nothing:
+                    pass
+                else:
+                    strategy_variable = optimizer.IntVar(0, 1, f"{outable_machine.name}_{index}")
+                    outable_machine.strategy_variables.append(strategy_variable)
+            strategy_variables.append(outable_machine.strategy_variables)
+
+        # Define strategy constraint
+        for strategy in strategy_variables:
+            if ignore_strategy_nothing:
+                optimizer.Add(sum(strategy) <= 1)
+            else:
+                optimizer.Add(sum(strategy) == 1)
+
+        # Define objective function
+        if ignore_strategy_nothing:
+            mat_cic = np.array(self.make_cic_sensitivity_matrix())[:, 1:]
+            mat_ens = np.array(self.make_ens_sensitivity_matrix())[:, 1:]
+            mat_saifi = np.array(self.make_saifi_sensitivity_matrix())[:, 1:]
+            mat_cost = np.array(self.make_cost_matrix())[:, 1:]
+        else:
+            mat_cic = np.array(self.make_cic_sensitivity_matrix())
+            mat_ens = np.array(self.make_ens_sensitivity_matrix())
+            mat_saifi = np.array(self.make_saifi_sensitivity_matrix())
+            mat_cost = np.array(self.make_cost_matrix())
+
+        arr_strategy = np.array(strategy_variables)
+
+        sensitivity_cic = sum(np.sum(mat_cic * arr_strategy, axis=1))
+        sensitivity_ens = sum(np.sum(mat_ens * arr_strategy, axis=1))
+        sensitivity_saifi = sum(np.sum(mat_saifi * arr_strategy, axis=1))
+        cost_constraint = sum(np.sum(mat_cost * arr_strategy, axis=1))
+
+        optimizer.Add(cost_constraint <= cost)
+
+        optimizer.Maximize(w_cic * sensitivity_cic + w_ens * sensitivity_ens + w_saifi * sensitivity_saifi)
+
+        time_start = time.time()
+        status = optimizer.Solve()
+        time_end = time.time()
+
+        print(f"Execution time: {time_end - time_start} seconds")
+
+        if status == pywraplp.Solver.OPTIMAL:
+            print('Solution:')
+            print(f'Objective value = {optimizer.Objective().Value()}')
+
+            # print machine name
+            print(f"{'Outable Machines':<{print_interval * 4}}", end='')
+            for machine in self.outable_machines:
+                print(f"{machine.name:{print_interval * 4}}", end='')
+            print()
+
+            print(f"{'CIC':<{print_interval * 4}}", end='')
+            for machine in self.outable_machines:
+                for sensitivity in machine.get_cic_sensitivity():
+                    print(f"{sensitivity:<{print_interval}.5f}", end='')
+            print()
+
+            print(f"{'ENS':<{print_interval * 4}}", end='')
+            for machine in self.outable_machines:
+                for sensitivity in machine.get_ens_sensitivity():
+                    print(f"{sensitivity:<{print_interval}.5f}", end='')
+            print()
+
+            print(f"{'SAIFI':<{print_interval * 4}}", end='')
+            for machine in self.outable_machines:
+                for sensitivity in machine.get_saifi_sensitivity():
+                    print(f"{sensitivity:<{print_interval}.5f}", end='')
+            print()
+
+            print(f"{'Repair time':<{print_interval * 4}}", end='')
+            for repair_time in [machine.average_outage_time for machine in self.outable_machines]:
+                print(f"{repair_time:<{print_interval * 4}.0f}", end='')
+
+            # print costs of strategies
+            print()
+            print(f"{'Costs':<{print_interval * 4}}", end='')
+            for costs in self.make_strategy_cost_matrix():
+                for cost in costs:
+                    print(f"{cost:<{print_interval}}", end='')
+
+            print()
+            print(f"\n{'Strategy':<{print_interval * 4}}", end='')
+            for index, machine in enumerate(self.outable_machines):
+                if ignore_strategy_nothing:
+                    print(f"{'-':<{print_interval}}", end='')
+                    for strategy in range(len(machine.strategy_costs) - 1):
+                        print(f'{strategy_variables[index][strategy].solution_value():<{print_interval}}', end='')
+                else:
+                    for strategy in range(len(machine.strategy_costs)):
+                        print(f'{machine.strategy_variables[strategy].solution_value():<{print_interval}}', end='')
+
+            print()
+            print(f"{'Outage rate':<{print_interval * 4}}", end='')
+            for index, machine in enumerate(self.outable_machines):
+                for strategy in range(len(machine.strategy_costs)):
+                    print(f'{machine.outage_rates[strategy]:<{print_interval}.3f}', end='')
+
+            print()
+            print()
+
+            print("Load machine info:")
+            print(f"{'Load Machines':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.name:{print_interval}}", end='')
+            print()
+
+            print(f"{'Num User':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.num_user:<{print_interval}}", end='')
+            print()
+
+            print(f"{'Outage cost':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.outage_cost:<{print_interval}}", end='')
+            print()
+
+            print(f"{'Load':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.load:<{print_interval}}", end='')
+            print()
+
+            print(f"{'Average outage time':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.get_average_outage_time():<{print_interval}.3f}", end='')
+            print("")
+
+            print(f"{'CIC of loads':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.get_cic_coef():<{print_interval}.3f}", end='')
+            print("")
+
+            print(f"{'ENS of loads':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.get_ens_coef():<{print_interval}.3f}", end='')
+            print("")
+
+            print(f"{'SAIFI of loads':<{print_interval * 4}}", end='')
+            for machine in self.load_machines:
+                print(f"{machine.get_saifi_coef():<{print_interval}.3f}", end='')
+            print("")
+
+            return True
+
 
 if __name__ == "__main__":
     NUM_LOADS = 14
     NUM_STRATEGIES = 4
     NUM_MACHINES = 51
-    outage_costs = [random.randint(5000, 10000) * 100 for _ in range(NUM_LOADS)]
+    outage_costs = [10000 for _ in range(NUM_LOADS)]
     print(f"outage_costs : {outage_costs}")
-    loads = [random.randint(1, 10) * 1000 for _ in range(NUM_LOADS)]
+    loads = [1000 for _ in range(NUM_LOADS)]
     print(f"loads : {loads}")
-    num_user = [random.randint(1, 10) * 1000 for _ in range(NUM_LOADS)]
+    num_user = [1000 for _ in range(NUM_LOADS)]
     print(f"num_users_of_loads : {num_user}")
 
     outage_rates = [sorted([0.004, 0.003, 0.002, 0.001], reverse=True) for _ in
                     range(NUM_MACHINES - NUM_LOADS)]
     strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGIES - 1)]) for _ in
                       range(NUM_MACHINES - NUM_LOADS)]
-    average_outage_times = [random.randint(1, 10) for _ in range(NUM_MACHINES - NUM_LOADS)]
+    average_outage_times = [1 for _ in range(NUM_MACHINES - NUM_LOADS)]
 
     # Define a system diagram
     PF_01 = MachineNode(name="PF_01", num_user=num_user[0], outage_cost=outage_costs[0], load=loads[0])
@@ -361,3 +523,5 @@ if __name__ == "__main__":
     print(system.make_saifi_sensitivity_matrix())
     print("ENS sensitivity matrix")
     print(system.make_ens_sensitivity_matrix())
+
+    print(system.optimize_maintenance(ignore_strategy_nothing=False, cost=20000, w_saifi=1, w_cic=1, w_ens=1))
