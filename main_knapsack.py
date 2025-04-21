@@ -4,7 +4,7 @@ import time
 from enum import Enum
 
 from src.solvers.or_knapsack import solve_fractional_knapsack_or
-from src.problems.knapsack import generate_knapsack_problem, eval_knapsack, eval_knapsack_rag
+from src.problems.knapsack import generate_knapsack_problem, eval_knapsack
 from src.solvers.ga import MyGaSolver, ParentSelectionMethod
 from src.solvers.sa import DualAnnealingSolver
 from src.utils import logger
@@ -32,7 +32,7 @@ def log_solution(values, weights, choices, fraction=1):
     str_weights = ''.join([f'{w:<6}' for w in weights])
     str_values = ''.join([f'{v:<6}' for v in values])
     str_choices = ''.join([f'{int(c):<6}' for c in choices])
-    str_gotten_values = ''.join([f'{values[i] * choices[i] / fraction:<6}' for i in range(len(values))])
+    str_gotten_values = ''.join([f'{values[i] * choices[i] / fraction:<6.1f}' for i in range(len(values))])
     logger.info(f"{'Values':<10}: {str_values}")
     logger.info(f"{'Weights':<10}: {str_weights}")
     logger.info(f"{'Solution':<10}: {str_choices}")
@@ -50,11 +50,11 @@ def solve_with_timer(solver_func, *args, **kwargs):
     return result
 
 
-def solve_or_tools(values, weights, capacity, fraction):
+def solve_or_tools(values, weights, capacity, fraction, solver_name='SCIP'):
     logger.info("OR-Tools Solution")
     total_value, solution, packed_weights = solve_with_timer(
         solve_fractional_knapsack_or,
-        values, weights, capacity, fraction
+        values, weights, capacity, fraction, solver_name
     )
     log_solution(values, weights, solution, fraction)
     return solution
@@ -79,8 +79,8 @@ def solve_genetic_algorithm(values, weights, capacity, fraction, use_rag=False,
                             mutation_rate: float = 0.1,
                             ):
     if use_rag:
-        fitness_function = lambda x: eval_knapsack_rag(x, values=values, weights=weights,
-                                                       capacity=capacity, division=fraction)
+        fitness_function = lambda x: eval_knapsack(x, values=values, weights=weights,
+                                                   capacity=capacity, division=fraction, rag=True)
     else:
         fitness_function = lambda x: eval_knapsack(x, values=values, weights=weights,
                                                    capacity=capacity, division=fraction)
@@ -169,6 +169,9 @@ def main():
                         help="Fractional knapsack ratio. if 1, normal knapsack problem")
     parser.add_argument("--solver", type=str, default="dp",
                         help=f"Solver to use: {', '.join([e.value for e in SolverType])}")
+    parser.add_argument("--solver_name", type=str, default="SCIP",
+                        help="Solver name for OR-Tools. Options: SCIP, CP-SAT")
+
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--random_seed", type=int, default=42, help="Random seed")
     parser.add_argument("--log_file", type=str, default=None, help="Log file path")
@@ -214,17 +217,20 @@ def main():
     )
     logger.get_logger().set_timestamp(False)
 
-    logger.info(f"Problem Configuration")
+    logger.info(f"Problem Configuration ==========")
     logger.info(f"Fraction: {args.fraction}")
     logger.info(f"Capacity: {capacity}")
     logger.info(f"Weights: {weights}")
     logger.info(f"Values: {values}")
     logger.info(f"Random seed: {args.random_seed}")
 
+    logger.info(f"Solver Configuration ============")
+    if args.solver == "or-tools":
+        logger.info(f"Solver name: {args.solver_name}")
+
     # Convert string to enum and validate input
     solver_type = SolverType.from_string(args.solver)
 
-    logger.info(f"Solver Configuration ============")
     logger.info(f"Solver: {solver_type.value}")
     if solver_type == SolverType.GA:
         properties = [(k, v) for k, v in vars(args).items() if k.startswith("ga_")]
@@ -242,8 +248,9 @@ def main():
     logger.info("End of Configuration ==========")
 
     # Dispatch to appropriate solver with hyperparameters
+    start_time = time.time()
     solvers = {
-        SolverType.OR_TOOLS: lambda: solve_or_tools(values, weights, capacity, args.fraction),
+        SolverType.OR_TOOLS: lambda: solve_or_tools(values, weights, capacity, args.fraction, args.solver_name),
         SolverType.DP: lambda: solve_dynamic_programming(values, weights, capacity, args.fraction),
         SolverType.GA: lambda: solve_genetic_algorithm(
             values, weights, capacity, args.fraction,
@@ -280,8 +287,6 @@ def main():
     }
 
     # Execute selected solver
-
-    start_time = time.time()
     result = solvers[solver_type]()
     end_time = time.time()
 
