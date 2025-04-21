@@ -4,6 +4,9 @@ from typing import Optional, Any
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Variable
 
+from src.utils.parsing import parse_function_variables
+from src.utils.utils import zero_formatting
+
 LOAD = []
 OUTAGE_COST = []
 NUM_USER = []
@@ -112,8 +115,15 @@ def get_strategy_cost(strategy: list[int]):
         [machine.strategy_costs[strategy[index]] for index, machine in enumerate(SchematicNode.outable_machines)])
 
 
+def value_from_list(strategy: list[int]):
+    if 1 in strategy:
+        return strategy.index(1)
+    return -1
+
+
 def solution_to_strategy(solution: list[list[int]]):
-    return [strategy.index(1) for strategy in solution]
+    print(f"Solution: {solution}")
+    return [value_from_list(strategy) for strategy in solution]
 
 
 class SchematicNode:
@@ -121,6 +131,7 @@ class SchematicNode:
     loads = []
     machines = []
     outable_machines = []
+    consider_strategy_zero = True
 
     def __init__(self,
                  name: str = None,
@@ -228,7 +239,53 @@ class SchematicNode:
         for child in self.children:
             child.print_tree(depth + 1)
 
-    @classmethod
+    @staticmethod
+    def make_strategy_constraint(solver: pywraplp.Solver,
+                                 num_strategy: int = NUM_STRATEGY,
+                                 num_machine: int = NUM_MACHINE) \
+            -> list[list[Variable]]:
+        """
+            SCIP Solver에 적용할 전략 변수를 생성하고, 제약 조건을 추가합니다.
+            Args:
+                solver: SCIP solver
+                num_strategy: 전략의 수, 전략없음을 포함하여 전체 전략의 수를 의미합니다.
+                num_machine: Number of machine
+                consider_strategy_zero: True일 경우, 전략없음을 하나의 전략(변수)으로 간주하고, False일 경우, 전략없음을 제외하여 제약조건을 추가합니다.
+        """
+        if not SchematicNode.consider_strategy_zero:
+            num_strategy -= 1
+        x = list([0] * num_strategy for _ in range(num_machine))  # list[ list[0, 0, 0, 0], list[0, 0, 0, 0], ... ]
+        for _machine in range(num_machine):
+            for _strategy in range(num_strategy):
+                x[_machine][_strategy] = solver.IntVar(0, 1,
+                                                       f'x_{zero_formatting(_machine)}_{_strategy}')  # each _strategy is binary variable
+
+        if SchematicNode.consider_strategy_zero:
+            for _machine in range(num_machine):
+                solver.Add(sum(x[_machine][_strategy] for _strategy in range(num_strategy)) == 1)
+        else:
+            for _machine in range(num_machine):
+                solver.Add(sum(x[_machine][_strategy] for _strategy in range(num_strategy)) <= 1)
+
+        return x
+
+    @staticmethod
+    def cost_variables():
+        if SchematicNode.consider_strategy_zero:
+            strategy_costs = [machine.strategy_costs for machine in SchematicNode.outable_machines]
+            strategy_variables = [machine.strategy_variables for machine in SchematicNode.outable_machines]
+        else:
+            strategy_costs = [machine.strategy_costs[1:] for machine in SchematicNode.outable_machines]
+            strategy_variables = [machine.strategy_variables[1:] for machine in SchematicNode.outable_machines]
+        flattened_cost = [cost for strategy in strategy_costs for cost in strategy]
+        flattened_variables = [variable for strategy in strategy_variables for variable in strategy]
+        return sum([cost * variable for cost, variable in zip(flattened_cost, flattened_variables)])
+
+    @staticmethod
+    def make_cost_constraint(solver: pywraplp.Solver, max_cost: int):
+        solver.Add(SchematicNode.cost_variables() <= max_cost)
+
+    @staticmethod
     def from_json_dict(cls, json_dict: dict[str, Any], parent: Optional['SchematicNode'] = None) -> 'SchematicNode':
         """JSON 딕셔너리에서 SchematicNode 객체 생성"""
         # 기본 속성 추출
@@ -305,20 +362,20 @@ class SchematicNode:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(self.to_json(), f, indent=2)
 
-    @classmethod
+    @staticmethod
     def from_json_string(cls, json_string: str) -> 'SchematicNode':
         """JSON 문자열에서 트리 구조 로드"""
         json_dict = json.loads(json_string)
         return cls.from_json_dict(json_dict)
 
-    @classmethod
+    @staticmethod
     def from_json_file(cls, filename: str) -> 'SchematicNode':
         """JSON 파일에서 트리 구조 로드"""
         with open(filename, 'r', encoding='utf-8') as f:
             json_dict = json.load(f)
         return cls.from_json_dict(json_dict)
 
-    @classmethod
+    @staticmethod
     def reset_class_variables(cls):
         """클래스 변수 초기화 (새로운 트리 로드 시 사용)"""
         cls.num_facility = 0
@@ -327,41 +384,14 @@ class SchematicNode:
         cls.outable_machines = []
 
 
-def cost_variables():
-    strategy_costs = [machine.strategy_costs for machine in SchematicNode.outable_machines]
-    strategy_variables = [machine.strategy_variables for machine in SchematicNode.outable_machines]
-    flattened_cost = [cost for strategy in strategy_costs for cost in strategy]
-    flattened_variables = [variable for strategy in strategy_variables for variable in strategy]
-    return sum([cost * variable for cost, variable in zip(flattened_cost, flattened_variables)])
-
-
-def make_cost_constraint(solver: pywraplp.Solver, max_cost: int):
-    solver.Add(cost_variables() <= max_cost)
-
-
-def make_strategy_constraint(solver: pywraplp.Solver,
-                             num_strategy: int = NUM_STRATEGY,
-                             num_machine: int = NUM_MACHINE) \
-        -> list[list[Variable]]:
-    x = list([0] * num_strategy for _ in range(num_machine))  # list[ list[0, 0, 0, 0], list[0, 0, 0, 0], ... ]
-    for _machine in range(num_machine):
-        for _strategy in range(num_strategy):
-            x[_machine][_strategy] = solver.IntVar(0, 1,
-                                                   f'x_{_machine}_{_strategy}')  # each _strategy is binary variable
-
-    for _machine in range(num_machine):
-        solver.Add(sum(x[_machine][_strategy] for _strategy in range(num_strategy)) == 1)
-
-    return x
-
-
 def apply_reliability_objectives(solver: pywraplp.Solver,
                                  cic_weight: float = 1 / 3.0,
                                  ens_weight: float = 1 / 3.0,
                                  saifi_weight: float = 1 / 3.0
                                  ):
+    objective_function = cic_weight * get_cic_sensitivity_variables() + ens_weight * get_ens_sensitivity_variables() + saifi_weight * get_saifi_sensitivity_variables()
+    print(f"Objective Function : {parse_function_variables(str(objective_function))}")
+    # print(f"Objective Function : {objective_function}")
     solver.Maximize(
-        cic_weight * get_cic_sensitivity_variables() +
-        ens_weight * get_ens_sensitivity_variables() +
-        saifi_weight * get_saifi_sensitivity_variables()
+        objective_function
     )
