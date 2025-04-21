@@ -1,73 +1,101 @@
 import time
 
 from ortools.linear_solver import pywraplp
-
-from src.problems.knapsack import generate_knapsack_problem
-
-
-def solve_knapsack_or(values: list[int], weights: list[int], capacity: int):
-    # 솔버 생성
-    solver = pywraplp.Solver.CreateSolver('SCIP')
-
-    # 변수 생성 (각 아이템을 선택할지 말지를 나타내는 이진 변수)
-    x = {}
-    for i in range(len(values)):
-        x[i] = solver.IntVar(0, 1, f'x_{i}')
-
-    # 제약 조건 추가 (총 무게는 용량을 초과할 수 없음)
-    solver.Add(sum(weights[i] * x[i] for i in range(len(weights))) <= capacity)
-
-    # 목적 함수 설정 (총 가치 최대화)
-    objective = solver.Objective()
-    for i in range(len(values)):
-        objective.SetCoefficient(x[i], values[i])
-    objective.SetMaximization()
-
-    # 문제 해결
-    status = solver.Solve()
-
-    # 결과 추출
-    if status == pywraplp.Solver.OPTIMAL:
-        packed_items = []
-        packed_weights = 0
-        total_value = 0
-        solution = [x[i].solution_value() for i in range(len(values))]
-        for i in range(len(values)):
-            packed_weights += weights[i]
-            total_value += values[i] * solution[i]
-        return total_value, solution, packed_weights
-    return None, None, None
+from ortools.sat.python import cp_model
 
 
-def solve_fractional_knapsack_or(weights: list[int], values: list[int], capacity: int, fraction: int):
-    solver = pywraplp.Solver.CreateSolver('SCIP')
-    if not solver:
-        print("SCIP 솔버를 생성할 수 없습니다.")
-        return
+def solve_fractional_knapsack_or(values: list[int],
+                                 weights: list[int],
+                                 capacity: int,
+                                 fraction: int,
+                                 solver_name: str = 'SCIP',
+                                 num_workers: int = 1):
+    n = len(values)
 
-    n = len(weights)
-    # 각 물건에 대해 0, 1, 2, 3 중 하나의 값을 갖는 정수 변수 x[i] 생성
-    # 여기서 x[i] / 3 이 실제 담는 비율을 나타냅니다.
-    x = [solver.IntVar(0, fraction, f'x{i}') for i in range(n)]
+    if solver_name == 'SCIP':
+        solver = pywraplp.Solver.CreateSolver('SCIP')
+        if not solver:
+            print("SCIP 솔버를 생성할 수 없습니다.")
+            return None
 
-    # constraint: sum( weights[i] * x[i] ) <= capacity * fraction
-    solver.Add(sum(weights[i] * x[i] for i in range(n)) <= capacity * fraction)
+        x = [solver.IntVar(0, fraction, f'x{i}') for i in range(n)]
+        solver.Add(sum(weights[i] * x[i] for i in range(n)) <= capacity * fraction)
 
-    # objective: maximize sum( values[i] * x[i] )
-    objective = solver.Objective()
-    for i in range(n):
-        objective.SetCoefficient(x[i], values[i])
-    objective.SetMaximization()
-
-    # 문제 풀기
-    status = solver.Solve()
-
-    if status == pywraplp.Solver.OPTIMAL:
-        # 실제 총 수익과 무게는 각 변수 값에 1/3을 곱한 결과임
-        total_value = sum(values[i] * x[i].solution_value() for i in range(n)) / fraction
-        total_weight = sum(weights[i] * x[i].solution_value() for i in range(n)) / fraction
+        objective = solver.Objective()
         for i in range(n):
-            x[i] = x[i].solution_value()
-        return total_value, x, total_weight
+            objective.SetCoefficient(x[i], values[i])
+        objective.SetMaximization()
+
+        time_start = time.time()
+        status = solver.Solve()
+        time_end = time.time()
+        print(f"[SCIP] Solver time: {time_end - time_start:.4f} seconds")
+
+        if status == pywraplp.Solver.OPTIMAL:
+            total_value = sum(values[i] * x[i].solution_value() for i in range(n)) / fraction
+            total_weight = sum(weights[i] * x[i].solution_value() for i in range(n)) / fraction
+            solution = [x[i].solution_value() for i in range(n)]
+            return total_value, solution, total_weight, None, None
+        else:
+            print("최적 해를 찾지 못했습니다.")
+            return None
+
+    elif solver_name == 'CP-SAT':
+        model = cp_model.CpModel()
+        x = [model.NewIntVar(0, fraction, f'x{i}') for i in range(n)]
+
+        model.Add(sum(weights[i] * x[i] for i in range(n)) <= capacity * fraction)
+        model.Maximize(sum(values[i] * x[i] for i in range(n)))
+
+        solver = cp_model.CpSolver()
+        solver.parameters.num_search_workers = num_workers
+        # model.ExportToFile("model.txt")  # 필요 시 주석 해제
+
+        time_start = time.time()
+        status = solver.Solve(model)
+        time_end = time.time()
+        print(f"[CP-SAT] Solver time: {time_end - time_start:.4f} seconds")
+
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            total_value = sum(values[i] * solver.Value(x[i]) for i in range(n)) / fraction
+            total_weight = sum(weights[i] * solver.Value(x[i]) for i in range(n)) / fraction
+            solution = [solver.Value(x[i]) for i in range(n)]
+            return total_value, solution, total_weight, solver.WallTime(), solver.NumConflicts()
+        else:
+            print("해를 찾을 수 없습니다.")
+            return None
     else:
-        print('최적 해를 찾지 못했습니다.')
+        print(f"알 수 없는 solver_name: {solver_name}")
+        return None
+
+
+# 예제 실행
+if __name__ == "__main__":
+    def generate_knapsack_problem(num_items, weight_range, value_range, capacity_ratio):
+        import random
+        weights = [random.randint(*weight_range) for _ in range(num_items)]
+        values = [random.randint(*value_range) for _ in range(num_items)]
+        capacity = int(sum(weights) * capacity_ratio)
+        return weights, values, capacity
+
+    weights, values, capacity = generate_knapsack_problem(
+        num_items=1000,
+        weight_range=(10, 50),
+        value_range=(50, 200),
+        capacity_ratio=0.5
+    )
+
+    # 기본 실행
+    result = solve_fractional_knapsack_or(values, weights, capacity, 1, solver_name='CP-SAT', num_workers=1)
+    if result:
+        total_value, solution, total_weight, wall_time, conflicts = result
+        print(f"Total value: {total_value}")
+        print(f"Total weight: {total_weight}")
+
+    # 멀티스레드 테스트
+    for workers in [1, 4, 8, 16, 24, 32, 64, 128]:
+        print(f"\n=== Testing with {workers} workers ===")
+        result = solve_fractional_knapsack_or(values, weights, capacity, 1, solver_name='CP-SAT', num_workers=workers)
+        if result:
+            _, _, _, wall_time, conflicts = result
+            print(f"{workers} workers → WallTime: {wall_time:.4f} sec, Conflicts: {conflicts}")

@@ -4,16 +4,17 @@ import time
 from ortools.linear_solver import pywraplp
 
 from src.solvers.ga import MyGaSolver
-from transformer_opt import SchematicNode, NUM_STRATEGY, make_strategy_constraint, make_cost_constraint, \
+from transformer_opt import SchematicNode, NUM_STRATEGY, \
     get_objective_reliability, get_strategy_cost, solution_to_strategy, \
     get_cic_sensitivity, get_ens_sensitivity, \
-    get_saifi_sensitivity, apply_reliability_objectives
+    get_saifi_sensitivity, apply_reliability_objectives, get_init_cic, get_init_ens, get_init_saifi
 
-random.seed(42)
+random.seed(41)
 
 
 def get_random_outage_rate():
-    return sorted([random.randint(1, 100) / 10000.0 for _ in range(NUM_STRATEGY)], reverse=True)
+    return [0.001, 0.002, 0.003, 0.004]
+    # return sorted([random.randint(1, 100) / 10000.0 for _ in range(NUM_STRATEGY)], reverse=True)
 
 
 def get_random_outage_time():
@@ -122,31 +123,43 @@ machines = SchematicNode.machines
 
 cable_head_main.print_tree()
 
-strategy_variables = make_strategy_constraint(solver=scip_solver, num_machine=num_outable_machine,
-                                              num_strategy=NUM_STRATEGY)
+strategy_variables = SchematicNode.make_strategy_constraint(solver=scip_solver, num_machine=num_outable_machine,
+                                                            num_strategy=NUM_STRATEGY)
 
 outable_machines = [machine for machine in SchematicNode.outable_machines]
 
 for index, outable_machine in enumerate(outable_machines):
     outable_machine.strategy_variables = strategy_variables[index]
 
+root_machine = outable_machines[0].get_root().save_to_json_file("root_machine.json")
+
 average_repair_times = [load.trace_average_repair_time() for load in load_machines]
 
 outage_rates = [machine.trace_outage_rate_variable() for machine in outable_machines]
-strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGY - 1)]) for _ in range(
-    num_outable_machine)]
 
-outage_rate_variables_of_loads = [machine.get_outage_rate_variable() for machine in outable_machines]
-mean_repair_times = [_load.trace_average_repair_time() for _load in load_machines]
+strategy_costs = [sorted([0.0] + [random.randint(1000, 5000) for _ in range(NUM_STRATEGY - 1)]) for _ in
+                  range(num_outable_machine)]
 
-make_cost_constraint(scip_solver, 2500)
+SchematicNode.make_cost_constraint(scip_solver, 20000)
 apply_reliability_objectives(scip_solver)
+
+time_start = time.time()
 status = scip_solver.Solve()
+time_end = time.time()
+print(f"Execution time: {time_end - time_start} seconds")
 
+time_start = time.time()
+status = scip_solver.Solve()
+time_end = time.time()
+print(f"Execution time: {time_end - time_start} seconds")
+
+print("=" * 50)
 if status == pywraplp.Solver.OPTIMAL:
-    print('Solution for SCIP solver:')
-    print(f'Objective value = {scip_solver.Objective().Value()}')
+    # print(f"Init CIC : {get_init_cic()}")
+    # print(f"Init ENS : {get_init_ens()}")
+    # print(f"Init SAIFI : {get_init_saifi()}")
 
+    print('Solution for SCIP solver:')
     solution = [[int(strategy.solution_value()) for strategy in machine.strategy_variables] for machine in
                 outable_machines]
 
@@ -192,22 +205,22 @@ if status == pywraplp.Solver.OPTIMAL:
 
 else:
     print('The problem does not have an optimal solution.')
-
-ga_solver = MyGaSolver(
-    population_size=2000,
-    solution_type=[3] * num_outable_machine,
-    fitness_function=lambda x: get_objective_reliability(x, max_cost=2500, is_overcost_penalty=True),
-    mutation_rate=0.8,
-    crossover_rate=1.0,
-)
-
-print()
-start_time = time.time()
-best_solution = ga_solver.solve(max_generations=200)
-end_time = time.time()
-print(f"Execution time: {end_time - start_time} seconds")
-print(f"Solution: {best_solution}")
-print(f"Objective value: {get_objective_reliability(best_solution, is_overcost_penalty=True)}")
-print(f"Strategy cost: {get_strategy_cost(best_solution)}")
-
-ga_solver.plot_history()
+#
+# ga_solver = MyGaSolver(
+#     population_size=2000,
+#     solution_type=[3] * num_outable_machine,
+#     fitness_function=lambda x: get_objective_reliability(x, max_cost=200000, is_overcost_penalty=True),
+#     mutation_rate=0.8,
+#     crossover_rate=1.0,
+# )
+#
+# print()
+# start_time = time.time()
+# best_solution = ga_solver.solve(max_generations=200)
+# end_time = time.time()
+# print(f"Execution time: {end_time - start_time} seconds")
+# print(f"Solution: {best_solution}")
+# print(f"Objective value: {get_objective_reliability(best_solution, is_overcost_penalty=True)}")
+# print(f"Strategy cost: {get_strategy_cost(best_solution)}")
+#
+# ga_solver.plot_history()
